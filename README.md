@@ -9,5 +9,5 @@ Project includes the following features -
  - Asteroid impact information
 
 Api used here are 
-- https://api.nasa.gov/neo/rest/v1/feed?start_date=2015-09-07&end_date=2015-09-08&api_key=DEMO_KEY
-- https://api.nasa.gov/neo/rest/v1/neo/3542519?api_key=DEMO_KEY
+- https://api.nasa.gov/neo/rest/v1/feed?start_date=2015-09-07&end_date=2015-09-08&api_key=3vgYWNjKFyD7st8laqSmoZBka5uHuluQcYXusMtr
+- https://api.nasa.gov/neo/rest/v1/neo/3542519?api_key=3vgYWNjKFyD7st8laqSmoZBka5uHuluQcYXusMtr
