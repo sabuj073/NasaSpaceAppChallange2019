@@ -9,16 +9,18 @@ file = open("today.txt", "w")
 file1 = open("week.txt", "w")
 
 
-def execute_db(name, diameter, date, time, velocity, distance, status):
+def execute_db(neo_id, name, diameter, date, time, velocity, distance, status):
     connection = pymysql.connect(host='localhost',
                                  user='root',
                                  password='',
                                  db='asteroid')
     try:
         with connection.cursor() as cursor:
-            sql = "INSERT INTO `approach` (name, diameter,date,time,velocity,distance,report) VALUES (%s, %s,%s,%s," \
+            sql = "INSERT INTO `approach` (neo_id,name, diameter,date,time,velocity,distance,report) VALUES (%s," \
+                  "%s, %s," \
+                  "%s,%s," \
                   "%s,%s,%s) "
-            cursor.execute(sql, (name, diameter, date, time, velocity, distance, status))
+            cursor.execute(sql, (neo_id, name, diameter, date, time, velocity, distance, status))
         connection.commit()
     finally:
         connection.close()
@@ -26,7 +28,7 @@ def execute_db(name, diameter, date, time, velocity, distance, status):
 
 def asteroids_approach(startDate, enddate, filename):
     # Our JSON request to retrieve data about asteroids approaching planet Earth.
-    url = "https://api.nasa.gov/neo/rest/v1/feed?start_date=" + startDate + "&end_date=" + enddate + "&api_key=DEMO_KEY"
+    url = "https://api.nasa.gov/neo/rest/v1/feed?start_date=" + startDate + "&end_date=" + enddate + "&api_key=3vgYWNjKFyD7st8laqSmoZBka5uHuluQcYXusMtr"
 
     response = urllib.request.urlopen(url)
 
@@ -40,6 +42,9 @@ def asteroids_approach(startDate, enddate, filename):
     for asteroid in asteroids:
         for field in asteroids[asteroid]:
             try:
+                neo_id = field["id"]
+                print("ID: " + neo_id)
+                filename.writelines("Asteroid id: " + field["id"] + "\n")
                 name = field["name"]
                 print("Asteroid Name: " + name)
                 filename.writelines("Asteroid Name: " + field["name"] + "\n")
@@ -73,19 +78,36 @@ def asteroids_approach(startDate, enddate, filename):
                     field["close_approach_data"][0]["miss_distance"]["kilometers"]) + " km\n")
 
                 if field["is_potentially_hazardous_asteroid"]:
-                    status = "This asteroid could be dangerous to planet Earth!"
-                    execute_db(name, diameter, date, time, velocity, distance, status)
+                    if "2019 SW10" not in name:
+                        status = "This asteroid could be dangerous to planet Earth!"
+                        execute_db(neo_id, name, diameter, date, time, velocity, distance, status)
+                        print("This asteroid could be dangerous to planet Earth!")
 
-                    print("This asteroid could be dangerous to planet Earth!")
                 else:
-                    status = "This asteroid poses no threat to planet Earth!"
-                    execute_db(name, diameter, date, time, velocity, distance, status)
-                    print("This asteroid poses no threat to planet Earth!")
+                    if "2019 SW10" not in name:
+                        status = "This asteroid poses no threat to planet Earth!"
+                        execute_db(neo_id, name, diameter, date, time, velocity, distance, status)
+                        print("This asteroid poses no threat to planet Earth!")
+
             except:
                 print("Unable to access all data.")
             print("--------------------\n")
             filename.writelines("--------------------\n")
 
+
+connection = pymysql.connect(host='localhost',
+                             user='root',
+                             password='',
+
+                             db='asteroid')
+try:
+    mycursor = connection.cursor()
+    sql = "TRUNCATE TABLE approach;"
+    mycursor.execute(sql)
+    connection.commit()
+
+finally:
+    connection.close()
 
 today = time.strftime('%Y-%m-%d', time.gmtime())
 print("Asteroid approach today..................")
