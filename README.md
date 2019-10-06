@@ -103,4 +103,4 @@ asteroids course will then be changed by a beam of highly dense anisotropic
 emission of thermal Photons that will deflect the asteroid by the phenomenon of
 the Yarkovsky effect. <br/>
 
-![Screenshot](https://images.app.goo.gl/1XrrDJbVtHUADdpa9)
+![example](harmonic.png)
