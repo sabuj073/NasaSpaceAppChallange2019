@@ -1,236 +1,250 @@
-# -*- coding: utf-8 -*-
-from OpenGL import GL, GLU, GLUT
-import sys
+from datetime import datetime
+import matplotlib as mpl
+from mpl_toolkits.mplot3d import Axes3D
 import numpy as np
-from math import pi
+import matplotlib.pyplot as plt
 
-import calculate_orbits as co
-from read_database import loadObject
+# Define Julian epoch
+J2000_EPOCH = datetime(2000, 1, 1, 12) # At the noon of 2000/01/01 UTC
 
-class OrbitDisplayGL(object):
+class Planet(object):
+    """ Defines a planet in the Solar system. """
 
-    def __init__(self, hazdata=None, nohazdata=None, mode='orbit'):
-        # self.data = data
-        self.mouseChangeX=0
-        self.mouseChangeY=0
-        self.angleX = -70.0
-        self.angleY = -135.0
-        self.hazdata = hazdata
-        self.nohazdata = nohazdata
-        self.mode = mode
+    def __init__(self, a, lambda0, e, I, lon_of_peri, node, T, color='blue', size=20):
+        """
+        Args: 
+            a (float): semi-major axis (AU)
+            lambda0 (float): mean longitude at epoch (degrees)
+            e (float): eccentricity
+            I (float): inclination (degrees)
+            lon_of_peri (float): longitude of perihelion (degrees)
+            node (float): longitude of ascending node (degrees)
+            T (float): orbital period (years)
+        Keyword args:
+            color (str): planet color
+            size (float): planet plot size
+        """
 
-    def prepare_displists(self):
-        # self.create_triangles()
-        # self.displists = [1]
-        self.construct_earthorbit()
-        self.create_earthorblist(1)
-        if self.hazdata is not None:
-            if self.mode == 'orbit':
-                self.haz_orbits = self._construct_orbits(self.hazdata)
-                # flat, inclined, self.haz_orbits = self.construct_orbits(self.hazdata)
-                # self.haz_orbits, inclined, rotated = self.construct_orbits(self.hazdata)
-                # flat, self.haz_orbits, rotated = self.construct_orbits(self.hazdata)
-                self.create_orbitlist(2, self.haz_orbits)
-            elif self.mode == 'point':
-                self.construct_pointcloud(2, self.hazdata)
-        if self.nohazdata is not None:
-            if self.mode == 'orbit':
-                self.nohaz_orbits = self._construct_orbits(self.nohazdata)
-                # flat, inclined, self.nohaz_orbits = self.construct_orbits(self.nohazdata)
-                # self.nohaz_orbits, inclined, rotated = self.construct_orbits(self.nohazdata)
-                # flat, self.nohaz_orbits, rotated = self.construct_orbits(self.nohazdata)
-                self.create_orbitlist(3, self.nohaz_orbits)
-            elif self.mode == 'point':
-                self.construct_pointcloud(3, self.nohazdata)
+        self.a = a
+        self.lambda0 = lambda0
+        self.e = e
+        self.I = I
+        self.lon_of_peri = lon_of_peri
+        self.node = node
+        self.T = T
+        self.color = color
+        self.size = size
 
-    def InitGL(self, Width, Height):
-        GL.glClearColor(0.1, 0.1, 0.1, 0.0)
-        GL.glClearDepth(1.0)
-        GL.glDepthFunc(GL.GL_LESS)
-        GL.glEnable(GL.GL_DEPTH_TEST)
+        # Mean orbital angular velocity, in radians per year
+        self.n = 2*np.pi/self.T
 
-        GL.glEnable(GL.GL_LIGHTING)
-        GL.glEnable(GL.GL_LIGHT0)
-        GL.glEnable(GL.GL_LIGHT1)
-        # GL.glLightfv(GL.GL_LIGHT1, GL.GL_DIFFUSE, (0.2, 0.3, 0.5, 1.0))
-        GL.glEnable(GL.GL_NORMALIZE)
+    def getPosition(self, t):
+        """ Returns the planet's position in a given time. 
+        Args:
+            t (datetime): a point in time of the planet's orbit
+        """
 
-        GL.glEnable(GL.GL_COLOR_MATERIAL)
-        GL.glMatrixMode(GL.GL_PROJECTION)
-        GL.glLoadIdentity()
-        GLU.gluPerspective(45.0, float(Width)/float(Height), 0.1, 100.0)
-        GL.glMatrixMode(GL.GL_MODELVIEW)
+        E = self.solveForE(t)
 
-    def ReSizeGLScene(self, Width, Height):
-        if Height == 0: 
-            Height = 1
-        GL.glViewport(0, 0, Width, Height)
-        GL.glMatrixMode(GL.GL_PROJECTION)
-        GL.glLoadIdentity()
-        GLU.gluPerspective(45.0, float(Width)/float(Height), 0.1, 100.0)
-        GL.glMatrixMode(GL.GL_MODELVIEW)
+        x, y, z = orbitalElements2Cartesian(self.a, self.e, self.I, self.lon_of_peri - self.node, self.node, E)
 
-    def DrawGLScene(self):
-        GL.glClear(GL.GL_COLOR_BUFFER_BIT | GL.GL_DEPTH_BUFFER_BIT)
-        GL.glLoadIdentity()
-        GL.glTranslatef(0.0, 0.0, -10.0)
-        GL.glRotatef(self.angleX, 1.0, 0.0, 0.0)
-        GL.glRotatef(self.angleY, 0.0, 0.0, 1.0)
-        GL.glEnable(GL.GL_ALPHA_TEST)
-        # GL.glDisable(GL.GL_BLEND)
-        GL.glEnable(GL.GL_BLEND)
-        GL.glBlendFunc(GL.GL_SRC_ALPHA, GL.GL_ONE_MINUS_SRC_ALPHA)
-        # GL.glPolygonMode(GL.GL_FRONT_AND_BACK, GL.GL_LINE)
-        # GL.glRotatef(rot, 0.0, 0.0, 1.0)
+        return x, y, z
 
 
-        if self.hazdata is not None:
-            # GL.glDepthMask(GL.GL_FALSE)
-            GL.glColor4f(0.9, 0.2, 0.2, 0.65)
-            GL.glLineWidth(2)
-            GL.glDisable(GL.GL_LIGHTING)
-            GL.glCallList(2)
-            GL.glEnable(GL.GL_LIGHTING)
-            # GL.glDepthMask(GL.GL_TRUE)
+    def solveForE(self, t, E=0, n=15):
+        """ Find the eccentric anomaly using the iterative method. 
+        Args:
+            t (float): a point in time of the planet's orbit (years from epoch)
+        Keyword args:
+            E (float): initial value of the eccentric anomaly for iteration
+            n (int): number of iterations
+        """
+
+        # Time of perihelion passage
+        tau = np.radians(self.lon_of_peri - self.lambda0)/self.n
+
+        # Mean anomaly
+        M = self.n*(t-tau)
+
+        def f(E, e, M):
+            return M + e*np.sin(E)
+
+        # Solve for eccentric anomaly using the iterative method
+        for i in range(n):
+            E = f(E, self.e, M)
+
+        return E
+
+    def plotPlanet(self, ax, time):
+        """ Plot the planet and its orbit on a 3D plot. 
+        Args:
+            ax (matplotlib object): 3D plot object
+            time (float): years from J2000.0 epoch
+        """
+
+        # Eccentric anomaly (all ranges)
+        E = np.linspace(-np.pi, np.pi, 100)
+
+        # Plot the planet
+        x, y, z = self.getPosition(time)
+        ax.scatter(x, y, z, c=self.color, s=self.size, edgecolors='face')
+
+        # Plot planet's orbit
+        x, y, z = orbitalElements2Cartesian(self.a, self.e, self.I, self.lon_of_peri - self.node, 
+            self.node, E)
+
+        ax.plot(x, y, z, color=self.color, linestyle='-', linewidth=0.5)
 
 
-        if self.nohazdata is not None:
-            # GL.glClear(GL.GL_COLOR_BUFFER_BIT)
-            # GL.glEnable(GL.GL_BLEND)
-            # GL.glDepthMask(GL.GL_FALSE)
-            # GL.glDisable(GL.GL_DEPTH_TEST)
-            GL.glColor4f(0.0, 0.6, 0.9, 0.5)
-            GL.glLineWidth(0.5)
-            GL.glDisable(GL.GL_LIGHTING)
-            GL.glCallList(3)
-            GL.glEnable(GL.GL_LIGHTING)
-            # GL.glDepthMask(GL.GL_TRUE)
-            # GL.glDisable(GL.GL_BLEND)
-            # GL.glEnable(GL.GL_DEPTH_TEST)
 
-        # GL.glDepthMask(GL.GL_FALSE)
-        GL.glDisable(GL.GL_DEPTH_TEST)
-        GL.glColor4f(0.0, 0.7, 0.1, 1)
-        GL.glLineWidth(4)
-        GL.glDisable(GL.GL_LIGHTING)
-        GL.glCallList(1)
-        GL.glEnable(GL.GL_LIGHTING)
-        GL.glEnable(GL.GL_DEPTH_TEST)
-        # GL.glDepthMask(GL.GL_TRUE)
-        # GL.glEnable(GL.GL_BLEND)
-        GLUT.glutSwapBuffers()
+def orbitalElements2Cartesian(a, e, I, peri, node, E):
+    """ Convert orbital elements to Cartesian coordinates in the Solar System.
+    Args: 
+        a (float): semi-major axis (AU)
+        e (float): eccentricity
+        I (float): inclination (degrees)
+        peri (float): longitude of perihelion (degrees)
+        node (float): longitude of ascending node (degrees)
+        E (float): eccentric anomaly (radians)
+    """
 
-    def mouseHandle(self, button, state, x, y):
-        if (button == GLUT.GLUT_LEFT_BUTTON) and (state == GLUT.GLUT_DOWN):
-            self.mouseChangeX = x
-            self.mouseChangeY = y
+    # Check if the orbit is parabolic or hyperbolic
+    if e >=1:
+        e = 0.99999999
 
-    def motionFunc(self, x,y):
-        self.angleX -= (self.mouseChangeY-y)*0.1
-        self.mouseChangeY = y
-        self.angleY -= (self.mouseChangeX-x)*0.1
-        self.mouseChangeX = x
-        GLUT.glutPostRedisplay()
 
-    def KeyPressed(self, *args):
-        if args[0]=='\033': sys.exit()
+    # Convert degrees to radians
+    I, peri, node = map(np.radians, [I, peri, node])
 
-    def create_orbitlist(self, nlist, orbits):
-        GL.glNewList(nlist, GL.GL_COMPILE)
-        GL.glBegin(GL.GL_LINES)
-        for orbit in orbits:
-            for i in range(len(orbit)-1):
-                p1 = orbit[i]
-                p2 = orbit[i+1]
-                GL.glVertex3f(p1[0], p1[1], p1[2])
-                GL.glVertex3f(p2[0], p2[1], p2[2])
-        GL.glEnd()
-        GL.glEndList()
+    # True anomaly
+    theta = 2*np.arctan(np.sqrt((1.0 + e)/(1.0 - e))*np.tan(E/2.0))
 
-    def create_earthorblist(self, nlist):
-        GL.glNewList(nlist, GL.GL_COMPILE)
-        GL.glBegin(GL.GL_LINES)
-        for i in range(len(self.earthpoints)-1):
-            p1 = self.earthpoints[i]
-            p2 = self.earthpoints[i+1]
-            GL.glVertex3f(p1[0], p1[1], p1[2])
-            GL.glVertex3f(p2[0], p2[1], p2[2])
-        GL.glEnd()
-        GL.glEndList()
-        
-    # def construct_orbits(self, data):
-    #     flatorbits = []
-    #     incorbits = []
-    #     rotorbits = []
-    #     for row in data:
-    #         a, e, i, w, omega = row
-    #         w, i, omega = np.radians([w, i, omega])
-    #         flat_points = co.get_points(a, e, numpoints=30)
-    #         inc_points = co.get_incpoints(w, i, flat_points)
-    #         rot_points = co.get_rotpoints(w, i, omega, inc_points)
-    #         flatorbits.append(flat_points)
-    #         incorbits.append(inc_points)
-    #         rotorbits.append(rot_points)
-    #     return flatorbits, incorbits, rotorbits
+    # Distance from the Sun to the poin on orbit
+    r = a*(1.0 - e*np.cos(E))
 
-    def _construct_orbits(self, data):
-        orbits = []
-        for row in data:
-            a, e, i, w, om = row
-            w, i, om = np.radians([w, i, om])
-            points = co.get_orbpoints(a, e, w, i, om, numpoints=60)
-            orbits.append(points)
-        return orbits
+    # Cartesian coordinates
+    x = r*(np.cos(node)*np.cos(peri + theta) - np.sin(node)*np.sin(peri + theta)*np.cos(I))
+    y = r*(np.sin(node)*np.cos(peri + theta) + np.cos(node)*np.sin(peri + theta)*np.cos(I))
+    z = r*np.sin(peri + theta)*np.sin(I)
 
-    def construct_earthorbit(self):
-        theta = np.linspace(0, 2*pi, 100)
-        self.earthpoints = np.array([co.get_orbpoint_earth(t) for t in theta])
+    return x, y, z
 
-    def construct_pointcloud(self, nlist, pointdata):
-        # GL.glEnable(GL.GL_POINT_SMOOTH)
-        GL.glNewList(nlist, GL.GL_COMPILE)
-        GL.glPointSize(3)
-        GL.glBegin(GL.GL_POINTS)
-        # i = 0
-        for point in pointdata:
-            # if i == 0:
-            #     print "point:", point
-            GL.glVertex3f(point[0], point[1], point[2])
-        GL.glEnd()
-        GL.glEndList()
+def plotPlanets(ax, time):
+    """ Plots the Solar system planets. 
+    Args:
+        ax (matplotlib object): 3D plot object
+        time (float): years from J2000.0 epoch
+    """
 
-    def show(self):
+    # Generate Planets (J2000.0 epoch)
+    mercury = Planet(0.3871, 252.25, 0.20564, 7.006, 77.46, 48.34, 0.241, color='#ecd67e', size=10)
+    venus = Planet(0.7233, 181.98, 0.00676, 3.398, 131.77, 76.67, 0.615, color='#e7d520', size=30)
+    earth = Planet(1.0000, 100.47, 0.01673, 0.000, 102.93, 0, 1.000, color='#1c7ff2', size=30)
+    mars = Planet(1.5237, 355.43, 0.09337, 1.852, 336.08, 49.71, 1.881, color='#cc1e2c', size=20)
+    jupiter = Planet(5.2025, 34.33, 0.04854, 1.299, 14.27, 100.29, 11.87, color='#D8CA9D', size=55)
+    saturn = Planet(9.5415, 50.08, 0.05551, 2.494, 92.86, 113.64, 29.47, color='#ead6b8', size=45)
+    uranus = Planet(19.188, 314.20, 0.04686, 0.773, 172.43, 73.96, 84.05, color='#287290', size=40)
+    neptune = Planet(30.070, 304.22, 0.00895, 1.770, 46.68, 131.79, 164.9, color='#70B7BA', size=40)
 
-        rot = 0
-        GLUT.glutInit(sys.argv)
-        GLUT.glutInitDisplayMode(GLUT.GLUT_RGBA | GLUT.GLUT_DOUBLE | 
-        GLUT.GLUT_ALPHA | GLUT.GLUT_DEPTH)
-        GLUT.glutInitWindowSize(400, 300)
-        GLUT.glutInitWindowPosition(0, 0)
-        GLUT.glutCreateWindow('Asteroid Orbits')
-        self.prepare_displists()
-        GLUT.glutDisplayFunc(self.DrawGLScene)
-        # GLUT.glutDisplayFunc(self.display_orbits)
-        GLUT.glutMouseFunc(self.mouseHandle)
-        GLUT.glutMotionFunc(self.motionFunc)
-        # GLUT.glutIdleFunc(DrawGLScene)
-        GLUT.glutReshapeFunc(self.ReSizeGLScene)
-        GLUT.glutKeyboardFunc(self.KeyPressed)
-        self.InitGL(400, 300)
-        GLUT.glutMainLoop()
+    planets = [mercury, venus, earth, mars, jupiter, saturn, uranus, neptune]
+
+    # Plot the Sun
+    ax.scatter(0, 0, 0, c='yellow', s=100)
+
+    # Plot planets
+    for planet in planets:
+        planet.plotPlanet(ax, time)
+
+
+
+def plotOrbits(orb_elements, time, orbit_colors=None, plot_planets=True):
+    """ Plot the given orbits in the solar system. 
+    Args:
+        orb_elements (ndarray of floats): 2D numpy array with orbits to plot, each entry contains:
+            a - Semimajor axis (AU)
+            e - Eccentricity
+            I - Inclination (degrees)
+            peri - Argument of perihelion (degrees)
+            node - Ascending node (degrees)
+        ax (matplotlib object): 3D plot object
+        time (datetime): datetime object of the time of the desired planet positions
+    """
+
+    # Check the shape of given orbital elements array
+    if len(orb_elements.shape) < 2:
+        orb_elements = np.array([orb_elements])
+
+
+    # Calculate the time difference from epoch to the given time (in years)
+    julian = (time - J2000_EPOCH)
+    years_diff = (julian.days + (julian.seconds + julian.microseconds/1000000.0) /86400.0)/365.2425
+
+    # Setup the plot
+    fig = plt.figure()
+    ax = fig.gca(projection='3d', axisbg='black')
+
+    # Set a constant aspect ratio
+    ax.set_aspect('equal', adjustable='box-forced')
+
+    # Hide the axes
+    ax.set_axis_off()
+    ax.grid(b=False)
+
+    # Plot the solar system planets
+    if plot_planets:
+        plotPlanets(ax, years_diff)
+
+
+    # Eccentric anomaly (full range)
+    E = np.linspace(-np.pi, np.pi, 100)
+
+    # Plot the given orbits
+    for i, orbit in enumerate(orb_elements):
+        a, e, I, peri, node = orbit
+
+        # Take extra steps in E if the orbit is very large
+        if a > 50:
+            E = np.linspace(-np.pi, np.pi, (a/20.0)*100)
+
+        # Get the orbit in cartesian space
+        x, y, z = orbitalElements2Cartesian(a, e, I, peri, node, E)
+
+        # Check if the colors orbit are provided
+        if orbit_colors:
+            color = orbit_colors[i]
+        else:
+            # Set to default
+            color = '#32CD32'
+
+        # Plot orbits
+        ax.plot(x, y, z, c=color)
+
+    ax.legend()
+
+    # Add limits (in AU)
+    ax.set_xlim3d(-5,5)
+    ax.set_ylim3d(-5,5)
+    ax.set_zlim3d(-5,5)
+
+    plt.tight_layout()
+    plt.show()
+
 
 
 if __name__ == '__main__':
 
-    sources = ['./asteroid_data/haz_rand_test.p',
-               './asteroid_data/nohaz_rand_test.p']
+    # Time now
+    time = datetime.now()
 
-    # sources = ['./asteroid_data/haz.p', './asteroid_data/nohaz.p']
-    cutcol = ['a', 'e', 'i', 'w', 'om']
-    # cutdata = dataset[cutcol]
-    datasets = map(loadObject, sources)
-    hazdata_gen, nohazdata_gen = [dataset[cutcol].as_matrix() for dataset in datasets]
-    # print "hazdata_gen:", hazdata_gen[:5]
-    disp_orbit = OrbitDisplayGL(hazdata=hazdata_gen, 
-                                nohazdata=nohazdata_gen, mode='orbit')
-    disp_orbit.show()
+
+    # Define orbits to plot
+    # a, e, incl, peri, node
+    orb_elements = np.array([
+        [2.363, 0.515, 4.0, 205.0, 346.1],
+        [0.989, 0.089, 3.1, 55.6, 21.2],
+        [0.898, 0.460, 1.3, 77.1, 331.2],
+        [184.585332285, 0.994914, 89.3950, 130.8767, 282.4633]
+        ])
+
+    # Plot orbits
+    plotOrbits(orb_elements, time)
