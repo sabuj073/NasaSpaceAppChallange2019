@@ -1,4 +1,4 @@
-# RTEA-Real Time Evaluation of Asteroid
+# RETEA-Real Time Evaluation of Asteroid
 
 We have used machine learning technique(Deep Neural Network) to classify near earth objects whether they are hazardous to earth or not and predict impact if any asteroid hit the earth.
 NEO that can hit earth are visualised in 3d in our web app.
